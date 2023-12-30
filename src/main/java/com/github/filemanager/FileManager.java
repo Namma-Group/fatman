@@ -328,6 +328,317 @@ public class FileManager {
         // not found!
         return null;
     }
+    private void renameFile() {
+        if (currentFile == null) {
+            showErrorMessage("No file selected to rename.", "Select File");
+            return;
+        }
+
+        String renameTo = JOptionPane.showInputDialog(gui, "New Name");
+        if (renameTo != null) {
+            try {
+                boolean directory = currentFile.isDirectory();
+                TreePath parentPath = findTreePath(currentFile.getParentFile());
+                DefaultMutableTreeNode parentNode =
+                        (DefaultMutableTreeNode) parentPath.getLastPathComponent();
+
+                boolean renamed =
+                        currentFile.renameTo(new File(currentFile.getParentFile(), renameTo));
+                if (renamed) {
+                    if (directory) {
+                        // rename the node..
+
+                        // delete the current node..
+                        TreePath currentPath = findTreePath(currentFile);
+                        System.out.println(currentPath);
+                        DefaultMutableTreeNode currentNode =
+                                (DefaultMutableTreeNode) currentPath.getLastPathComponent();
+
+                        treeModel.removeNodeFromParent(currentNode);
+
+                        // add a new node..
+                    }
+
+                    showChildren(parentNode);
+                } else {
+                    String msg = "The file '" + currentFile + "' could not be renamed.";
+                    showErrorMessage(msg, "Rename Failed");
+                }
+            } catch (Throwable t) {
+                showThrowable(t);
+            }
+        }
+        gui.repaint();
+    }
+
+    private void deleteFile() {
+        if (currentFile == null) {
+            showErrorMessage("No file selected for deletion.", "Select File");
+            return;
+        }
+
+        int result =
+                JOptionPane.showConfirmDialog(
+                        gui,
+                        "Are you sure you want to delete this file?",
+                        "Delete File",
+                        JOptionPane.ERROR_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            try {
+                System.out.println("currentFile: " + currentFile);
+                TreePath parentPath = findTreePath(currentFile.getParentFile());
+                System.out.println("parentPath: " + parentPath);
+                DefaultMutableTreeNode parentNode =
+                        (DefaultMutableTreeNode) parentPath.getLastPathComponent();
+                System.out.println("parentNode: " + parentNode);
+
+                boolean directory = currentFile.isDirectory();
+                if (FileUtils.deleteQuietly(currentFile)) {
+                    if (directory) {
+                        // delete the node..
+                        TreePath currentPath = findTreePath(currentFile);
+                        System.out.println(currentPath);
+                        DefaultMutableTreeNode currentNode =
+                                (DefaultMutableTreeNode) currentPath.getLastPathComponent();
+
+                        treeModel.removeNodeFromParent(currentNode);
+                    }
+
+                    showChildren(parentNode);
+                } else {
+                    String msg = "The file '" + currentFile + "' could not be deleted.";
+                    showErrorMessage(msg, "Delete Failed");
+                }
+            } catch (Throwable t) {
+                showThrowable(t);
+            }
+        }
+        gui.repaint();
+    }
+
+    private void newFile() {
+        if (currentFile == null) {
+            showErrorMessage("No location selected for new file.", "Select Location");
+            return;
+        }
+
+        if (newFilePanel == null) {
+            newFilePanel = new JPanel(new BorderLayout(3, 3));
+
+            JPanel southRadio = new JPanel(new GridLayout(1, 0, 2, 2));
+            newTypeFile = new JRadioButton("File", true);
+            JRadioButton newTypeDirectory = new JRadioButton("Directory");
+            ButtonGroup bg = new ButtonGroup();
+            bg.add(newTypeFile);
+            bg.add(newTypeDirectory);
+            southRadio.add(newTypeFile);
+            southRadio.add(newTypeDirectory);
+
+            name = new JTextField(15);
+
+            newFilePanel.add(new JLabel("Name"), BorderLayout.WEST);
+            newFilePanel.add(name);
+            newFilePanel.add(southRadio, BorderLayout.SOUTH);
+        }
+
+        int result =
+                JOptionPane.showConfirmDialog(
+                        gui, newFilePanel, "Create File", JOptionPane.OK_CANCEL_OPTION);
+        if (result == JOptionPane.OK_OPTION) {
+            try {
+                boolean created;
+                File parentFile = currentFile;
+                if (!parentFile.isDirectory()) {
+                    parentFile = parentFile.getParentFile();
+                }
+                File file = new File(parentFile, name.getText());
+                if (newTypeFile.isSelected()) {
+                    created = file.createNewFile();
+                } else {
+                    created = file.mkdir();
+                }
+                if (created) {
+
+                    TreePath parentPath = findTreePath(parentFile);
+                    DefaultMutableTreeNode parentNode =
+                            (DefaultMutableTreeNode) parentPath.getLastPathComponent();
+
+                    if (file.isDirectory()) {
+                        // add the new node..
+                        DefaultMutableTreeNode newNode = new DefaultMutableTreeNode(file);
+
+                        TreePath currentPath = findTreePath(currentFile);
+                        DefaultMutableTreeNode currentNode =
+                                (DefaultMutableTreeNode) currentPath.getLastPathComponent();
+
+                        treeModel.insertNodeInto(newNode, parentNode, parentNode.getChildCount());
+                    }
+
+                    showChildren(parentNode);
+                } else {
+                    String msg = "The file '" + file + "' could not be created.";
+                    showErrorMessage(msg, "Create Failed");
+                }
+            } catch (Throwable t) {
+                showThrowable(t);
+            }
+        }
+        gui.repaint();
+    }
+
+    private void showErrorMessage(String errorMessage, String errorTitle) {
+        JOptionPane.showMessageDialog(gui, errorMessage, errorTitle, JOptionPane.ERROR_MESSAGE);
+    }
+
+    private void showThrowable(Throwable t) {
+        t.printStackTrace();
+        JOptionPane.showMessageDialog(gui, t.toString(), t.getMessage(), JOptionPane.ERROR_MESSAGE);
+        gui.repaint();
+    }
+
+    /** Update the table on the EDT */
+    private void setTableData(final File[] files) {
+        SwingUtilities.invokeLater(
+                new Runnable() {
+                    public void run() {
+                        if (fileTableModel == null) {
+                            fileTableModel = new FileTableModel();
+                            table.setModel(fileTableModel);
+                        }
+                        table.getSelectionModel()
+                                .removeListSelectionListener(listSelectionListener);
+                        fileTableModel.setFiles(files);
+                        table.getSelectionModel().addListSelectionListener(listSelectionListener);
+                        if (!cellSizesSet) {
+                            Icon icon = fileSystemView.getSystemIcon(files[0]);
+
+                            // size adjustment to better account for icons
+                            table.setRowHeight(icon.getIconHeight() + rowIconPadding);
+
+                            setColumnWidth(0, -1);
+                            setColumnWidth(3, 60);
+                            table.getColumnModel().getColumn(3).setMaxWidth(120);
+                            setColumnWidth(4, -1);
+                            setColumnWidth(5, -1);
+                            setColumnWidth(6, -1);
+                            setColumnWidth(7, -1);
+                            setColumnWidth(8, -1);
+                            setColumnWidth(9, -1);
+
+                            cellSizesSet = true;
+                        }
+                    }
+                });
+    }
+
+    private void setColumnWidth(int column, int width) {
+        TableColumn tableColumn = table.getColumnModel().getColumn(column);
+        if (width < 0) {
+            // use the preferred width of the header..
+            JLabel label = new JLabel((String) tableColumn.getHeaderValue());
+            Dimension preferred = label.getPreferredSize();
+            // altered 10->14 as per camickr comment.
+            width = (int) preferred.getWidth() + 14;
+        }
+        tableColumn.setPreferredWidth(width);
+        tableColumn.setMaxWidth(width);
+        tableColumn.setMinWidth(width);
+    }
+
+    private void showChildren(final DefaultMutableTreeNode node) {
+        tree.setEnabled(false);
+        progressBar.setVisible(true);
+        progressBar.setIndeterminate(true);
+
+        SwingWorker<Void, File> worker =
+                new SwingWorker<Void, File>() {
+                    @Override
+                    public Void doInBackground() {
+                        File file = (File) node.getUserObject();
+                        if (file.isDirectory()) {
+                            File[] files = fileSystemView.getFiles(file, true); // !!
+                            if (node.isLeaf()) {
+                                for (File child : files) {
+                                    if (child.isDirectory()) {
+                                        publish(child);
+                                    }
+                                }
+                            }
+                            setTableData(files);
+                        }
+                        return null;
+                    }
+
+                    @Override
+                    protected void process(List<File> chunks) {
+                        for (File child : chunks) {
+                            node.add(new DefaultMutableTreeNode(child));
+                        }
+                    }
+
+                    @Override
+                    protected void done() {
+                        progressBar.setIndeterminate(false);
+                        progressBar.setVisible(false);
+                        tree.setEnabled(true);
+                    }
+                };
+        worker.execute();
+    }
+
+    private void setFileDetails(File file) {
+        currentFile = file;
+        Icon icon = fileSystemView.getSystemIcon(file);
+        fileName.setIcon(icon);
+        fileName.setText(fileSystemView.getSystemDisplayName(file));
+        path.setText(file.getPath());
+        date.setText(new Date(file.lastModified()).toString());
+        size.setText(file.length() + " bytes");
+        readable.setSelected(file.canRead());
+        writable.setSelected(file.canWrite());
+        executable.setSelected(file.canExecute());
+        isDirectory.setSelected(file.isDirectory());
+
+        isFile.setSelected(file.isFile());
+
+        JFrame f = (JFrame) gui.getTopLevelAncestor();
+        if (f != null) {
+            f.setTitle(APP_TITLE + " :: " + fileSystemView.getSystemDisplayName(file));
+        }
+
+        gui.repaint();
+    }
+
+    public static boolean copyFile(File from, File to) throws IOException {
+
+        boolean created = to.createNewFile();
+
+        if (created) {
+            FileChannel fromChannel = null;
+            FileChannel toChannel = null;
+            try {
+                fromChannel = new FileInputStream(from).getChannel();
+                toChannel = new FileOutputStream(to).getChannel();
+
+                toChannel.transferFrom(fromChannel, 0, fromChannel.size());
+
+                // set the flags of the to the same as the from
+                to.setReadable(from.canRead());
+                to.setWritable(from.canWrite());
+                to.setExecutable(from.canExecute());
+            } finally {
+                if (fromChannel != null) {
+                    fromChannel.close();
+                }
+                if (toChannel != null) {
+                    toChannel.close();
+                }
+                return false;
+            }
+        }
+        return created;
+    }
+
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(
