@@ -58,7 +58,7 @@ public class FileManager {
     private JRadioButton isDirectory;
     private JRadioButton isFile;
 
-    /* GUI options/containers for new File/Directory creation.  Created lazily. */
+    /* GUI options/containers for new File/Directory creation. */
     private JPanel newFilePanel;
     private JRadioButton newTypeFile;
     private JTextField name;
